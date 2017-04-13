@@ -20,22 +20,20 @@ class WebSimilarityDetector(object):
 	"""
 		Make divisions of text for copy-check.
 	"""
-	def makeDivisions(self, text, min_word_count=20):
+	def makeDivisions(self, text, min_word_count=30):
 		ret = []
+		phrase = ""
 		split1 = [t.strip() for t in text.split("。") if re.search("^[\s　]+$", t) is None]
 		for s1 in split1:
 			split2 = [t.strip() for t in s1.split("、") if re.search("^[\s　]+$", t) is None]
-			tmp = []
 			for i,s2 in enumerate(split2):
-				tmp.append(s2)
-				tmp2 = "、".join(tmp)
-				if len(tmp2) > min_word_count:
-					ret.append(tmp2)
-					tmp = []
+				phrase = phrase + " " +  s2
+				if len(phrase) >= min_word_count:
+					ret.append(phrase)
+					phrase = ""
 
-				# Append if loop count equals last index of loop.
-				if (i == len(split2)-1) and (len(tmp) > 0 and len(tmp2) > 0):
-					ret.append(tmp2)
+		if phrase != "":
+			ret.append(phrase)
 
 		return ret
 
@@ -48,6 +46,9 @@ class WebSimilarityDetector(object):
 		ret = []
 		BASE_URL_GOOGLE = "https://www.google.co.jp/search"
 
+		if min_similarity == "":
+			min_similarity=0.7
+
 		# Get page index(page=1 then pageindex=0, page=2 then pageindex=10, ...)
 		def pageIndex(page):
 			return ((page-1) * 10)
@@ -56,18 +57,31 @@ class WebSimilarityDetector(object):
 		params = {
 			"q": query,
 			"start": pageIndex(page),
+			"ie": "utf-8",
+			"oe": "utf-8",
+			"aq": "t",
+			"rls": "org.mozilla:en-US:official",
+			"client": "firefox-a",
+			"channel": "fflb",
+
+		}
+		proxies = {
+			'http': 'http://59.106.175.55:5400',
+			'https': 'http://59.106.175.55:5400',
 		}
 
 		try:
 			# Send http-request and get result.
-			res = requests.get(BASE_URL_GOOGLE, params=params)
+			req = requests.session()
+			res = req.get(BASE_URL_GOOGLE, params=params, proxies=proxies)
 
 			if res.status_code != 200:
-				print("Error: " + "Status({0}) code is invalid.".format(r.status_code))
-				self.errorlog(self, "Error: " + "Status({0}) code is invalid.".format(r.status_code))
+				print("Error: " + "Status({0}) code is invalid.".format(res.status_code))
+				self.errorlog("Error: " + "Status({0}) code is invalid.".format(res.status_code))
 				return False
 
 			html = res.text
+
 
 			if html != "":
 				doc = pq(html)
@@ -89,9 +103,13 @@ class WebSimilarityDetector(object):
 					ratio = difflib.SequenceMatcher(None, self.extrim(params["q"]), self.extrim(bolds)).ratio()
 
 					# Check if query is similar to descriptions.
-					# if self.extrim(params["q"]) in self.extrim(desc) or ratio > min_similarity:
 					if ratio >= min_similarity:
 						ret.append({"query":params["q"], "url":url, "desc":desc, "ratio":ratio})
+
+
+				desc = sorted(ret, key=lambda ret: ret['ratio'], reverse=True)
+				if len(desc) > 0:
+					ret = [desc[0]]
 
 				self.operationlog(query)
 				return ret
